@@ -629,27 +629,21 @@ impl<'a> FromBer<'a, LdapError> for AuthenticationChoice<'a> {
     fn from_ber(bytes: &'a [u8]) -> ParseResult<'a, Self, LdapError> {
         let (rem, header) = Header::from_ber(bytes).map_err(Err::convert)?;
         match header.tag().0 {
-            0 => {
-                // assume len is primitive, and just take bytes
+            0 if header.is_primitive() => {
+                // primitive, just take bytes
                 let sz = header
                     .length()
                     .definite()
                     .map_err(|e| Err::Error(LdapError::Ber(e)))?;
                 let (i, b) = take(sz)(rem)?;
-                // // other solution: read content as octetstring and get slice
-                // let (i, b) = map_res(
-                //     |d| {
-                //         ber_read_element_content_as(
-                //             d,
-                //             BerTag::OctetString,
-                //             header.len,
-                //             header.is_constructed(),
-                //             1,
-                //         )
-                //     },
-                //     |o| o.as_slice(),
-                // )(rem)
-                // .map_err(Err::convert)?;
+                Ok((i, AuthenticationChoice::Simple(Cow::Borrowed(b))))
+            }
+            0 => {
+                // contructed, probably explicitly tagged:
+                // this isn't strictly legal following the LDAP rules,
+                // but can probably still be correctly parsed:
+                let (i, b) = <&[u8]>::from_ber(rem).map_err(Err::convert)?;
+
                 Ok((i, AuthenticationChoice::Simple(Cow::Borrowed(b))))
             }
             3 => map(parse_sasl_credentials, AuthenticationChoice::Sasl)(rem),

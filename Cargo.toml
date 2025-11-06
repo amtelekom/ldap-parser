@@ -1,6 +1,6 @@
 [package]
 name = "ldap-parser"
-version = "0.5.0"
+version = "0.6.0"
 description = "Parser for the LDAP protocol (RFC 4511)"
 authors = ["Pierre Chifflier <chifflier@wzdftpd.net>"]
 edition = "2018"
@@ -23,6 +23,12 @@ include = [
   "src/*.rs",
   "tests/*.rs"
 ]
+
+[features]
+default = []
+encoder = []
+
+der = [] #Nonstandard; encodes as valid DER instead of LDAP-BER
 
 [package.metadata.docs.rs]
 all-features = true
