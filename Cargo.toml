@@ -34,11 +34,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 asn1-rs = "0.7"
-rusticata-macros = "4.0"
+rusticata-macros = "5.0"
 thiserror = "2.0"
 
 [dev-dependencies]
-hex-literal = "0.4"
+hex-literal = "1.1"
 
 [package.metadata.cargo_check_external_types]
 allowed_external_types = [
