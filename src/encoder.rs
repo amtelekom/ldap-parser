@@ -1,3 +1,10 @@
+// In the following, each `ToDer` impl acutally encodes into the LDAP BER format,
+// since there is no ToBer to implement at the time of writing,
+// noting each time we deviate using #LDAPBER
+
+// Note: if you're looking (for some reason) for an implementation that
+// encodes messages into actual DER (violating the LDAP standard), see
+// commit ref c28674746e9cd28f6ad2f448e5e377ed478b2d97
 use crate::filter::*;
 use crate::ldap::*;
 use asn1_rs::DynTagged;
@@ -24,27 +31,18 @@ fn sum_der_lens<T: ToDer>(acc: usize, entry: &T) -> asn1_rs::Result<usize> {
 }
 
 pub trait ToDerContentLen: ToDer {
-    #[allow(dead_code)] //is not used when in DER mode
     const CONTENT_IS_CONSTRUCTED: bool;
     fn der_content_len(&self) -> asn1_rs::Result<usize>;
 
-    /// Calculates the size of this ToDer as it will be written by [`write_tagged`]
+    /// Calculates the size of this ToDer as it will be written by [`Self::write_tagged`]
     fn tagged_len(&self) -> asn1_rs::Result<usize> {
-        #[cfg(feature = "der")] // #ACTUALDER
-        {
-            size_with_header(self.to_der_len()?)
-        }
-        #[cfg(not(feature = "der"))] // #LDAPBER
-        {
-            self.to_der_len()
-        }
+        // #LDAPBER
+        self.to_der_len()
     }
 
     /// Helper function: Write this ToDer with a specific Tag
     ///
-    /// Depending on the non-standard "der" Feature,
-    /// the Tag will be written as an explicit (DER) or implicit (LDAP BER rules) tag
-    /// [It can therefore not be used for special cases, where LDAP BER also requires an explicit tag]
+    /// the Tag will be written as an implicit (LDAP BER rules) tag
     fn write_tagged(
         &self,
         writer: &mut dyn std::io::Write,
@@ -59,32 +57,21 @@ pub trait ToDerContentLen: ToDer {
 
     /// Helper function: Write the Header(s) for this ToDer with a specific Tag
     ///
-    /// Depending on the non-standard "der" Feature,
-    /// the Tag will be written as an additional explicit (DER) or implicit (LDAP BER rules) tag
-    /// [It can therefore not be used for special cases, where LDAP BER also requires an explicit tag]
+    /// the Tag will be implicit (LDAP BER rules) tag+
     fn write_tagged_header(
         &self,
         writer: &mut dyn std::io::Write,
         class: Class,
         tag: Tag,
     ) -> asn1_rs::SerializeResult<usize> {
-        #[cfg(feature = "der")] // #ACTUALDER
-        {
-            let tagheader = Header::new(class, true, tag, Length::Definite(self.to_der_len()?));
-            let mut written = tagheader.write_der_header(writer)?;
-            written += self.write_der_header(writer)?;
-            Ok(written)
-        }
-        #[cfg(not(feature = "der"))] // #LDAPBER
-        {
-            let header = Header::new(
-                class,
-                Self::CONTENT_IS_CONSTRUCTED,
-                tag,
-                Length::Definite(self.der_content_len()?),
-            );
-            header.write_der_header(writer)
-        }
+        // #LDAPBER
+        let header = Header::new(
+            class,
+            Self::CONTENT_IS_CONSTRUCTED,
+            tag,
+            Length::Definite(self.der_content_len()?),
+        );
+        header.write_der_header(writer)
     }
 }
 
@@ -842,39 +829,20 @@ impl ToDerContentLen for Filter<'_> {
     const CONTENT_IS_CONSTRUCTED: bool = true;
 
     fn der_content_len(&self) -> asn1_rs::Result<usize> {
-        #[cfg(feature = "der")] // #ACTUALDER
-        {
-            Ok(match self {
-                Self::And(filters) | Self::Or(filters) => {
-                    filters.iter().try_fold(0, sum_der_lens)?
-                }
-                Self::Not(filter) => filter.to_der_len()?,
-                Self::Substrings(substring_filter) => substring_filter.to_der_len()?,
-                Self::EqualityMatch(ava)
-                | Self::GreaterOrEqual(ava)
-                | Self::LessOrEqual(ava)
-                | Self::ApproxMatch(ava) => ava.to_der_len()?,
-                Self::Present(ldap_string) => ldap_string.to_der_len()?,
-                Self::ExtensibleMatch(mra) => mra.to_der_len()?,
-            })
-        }
-        #[cfg(not(feature = "der"))] // #LDAPBER
-        {
-            Ok(match self {
-                Self::And(filters) | Self::Or(filters) => {
-                    filters.iter().try_fold(0, sum_der_lens)?
-                }
-                Self::Not(filter) => filter.to_der_len()?,
-                Self::Substrings(substring_filter) => substring_filter.struct_content_len()?, // #LDAPBER
-                Self::EqualityMatch(ava)
-                | Self::GreaterOrEqual(ava)
-                | Self::LessOrEqual(ava)
-                | Self::ApproxMatch(ava) => ava.struct_content_len()?, // #LDAPBER
-                //Self::Present(ldap_string) => ldap_string.to_der_len()?, // #ACTUALDER
-                Self::Present(ldap_string) => ldap_string.0.len(), // #LDAPBER -> implicit tagging
-                Self::ExtensibleMatch(mra) => mra.struct_content_len()?, // #LDAPBER
-            })
-        }
+        // #LDAPBER
+
+        Ok(match self {
+            Self::And(filters) | Self::Or(filters) => filters.iter().try_fold(0, sum_der_lens)?,
+            Self::Not(filter) => filter.to_der_len()?,
+            Self::Substrings(substring_filter) => substring_filter.struct_content_len()?, // #LDAPBER
+            Self::EqualityMatch(ava)
+            | Self::GreaterOrEqual(ava)
+            | Self::LessOrEqual(ava)
+            | Self::ApproxMatch(ava) => ava.struct_content_len()?, // #LDAPBER
+            //Self::Present(ldap_string) => ldap_string.to_der_len()?, // #ACTUALDER
+            Self::Present(ldap_string) => ldap_string.0.len(), // #LDAPBER -> implicit tagging
+            Self::ExtensibleMatch(mra) => mra.struct_content_len()?, // #LDAPBER
+        })
     }
 }
 impl ToDer for Filter<'_> {
@@ -908,11 +876,8 @@ impl ToDer for Filter<'_> {
             Self::Not(filter) => filter.write_der(writer), //explicit Tag in both DER and LDAPDER
             Self::Substrings(substring_filter) => {
                 let mut written = 0;
-                #[cfg(feature = "der")]
-                {
-                    written += substring_filter.write_der_header(writer)?; // Additional header for #ACTUALDER
-                }
-                written += substring_filter.write_der_content(writer)?; // Content in both cases
+                // #LDAPBER
+                written += substring_filter.write_der_content(writer)?;
                 Ok(written)
             }
             Self::EqualityMatch(ava)
@@ -920,29 +885,20 @@ impl ToDer for Filter<'_> {
             | Self::LessOrEqual(ava)
             | Self::ApproxMatch(ava) => {
                 let mut written = 0;
-                #[cfg(feature = "der")]
-                {
-                    written += ava.write_der_header(writer)?; // Additional header for #ACTUALDER
-                }
-                written += ava.write_der_content(writer)?; // Content in both cases
+                // #LDAPBER
+                written += ava.write_der_content(writer)?;
                 Ok(written)
             }
             Self::Present(ldap_string) => {
                 let mut written = 0;
-                #[cfg(feature = "der")]
-                {
-                    written += ldap_string.write_der_header(writer)?; // Additional header for #ACTUALDER
-                }
-                written += ldap_string.write_der_content(writer)?; // Content in both cases
+                // #LDAPBER
+                written += ldap_string.write_der_content(writer)?;
                 Ok(written)
             }
             Self::ExtensibleMatch(mra) => {
                 let mut written = 0;
-                #[cfg(feature = "der")]
-                {
-                    written += mra.write_der_header(writer)?; // Additional header for #ACTUALDER
-                }
-                written += mra.write_der_content(writer)?; // Content in both cases
+                // #LDAPBER
+                written += mra.write_der_content(writer)?;
                 Ok(written)
             }
         }

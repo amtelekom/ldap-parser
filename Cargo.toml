@@ -28,8 +28,6 @@ include = [
 default = []
 encoder = []
 
-der = [] #Nonstandard; encodes as valid DER instead of LDAP-BER
-
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

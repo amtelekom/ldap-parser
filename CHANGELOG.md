@@ -8,6 +8,12 @@
 
 ### Thanks
 
+## 0.6.0
+
+### Changed/Fixed
+
+- Added encoding LDAP messages to BER
+
 ## 0.5.0
 
 ### Changed/Fixed
